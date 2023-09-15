@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "paperless-ngx.fullname" . }}
+  labels:
+    {{- include "paperless-ngx.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "paperless-ngx.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "paperless-ngx.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "paperless-ngx.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: PAPERLESS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: PAPERLESS_URL
+            - name: PAPERLESS_REDIS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: REDIS_CONNECTION_STRING
+            - name: PAPERLESS_DBHOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: POSTGRESQL_HOST
+            - name: PAPERLESS_DBPORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: POSTGRESQL_PORT
+            - name: PAPERLESS_DBNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: POSTGRESQL_DATABASE
+            - name: PAPERLESS_DBUSER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: POSTGRESQL_USERNAME
+            - name: PAPERLESS_DBPASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: POSTGRESQL_PASSWORD
+            - name: PAPERLESS_DBSSLMODE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: POSTGRESQL_SSLMODE
+            - name: PAPERLESS_DATA_DIR
+              value: /data/paperless
+            - name: PAPERLESS_TRASH_DIR
+              value: /data/trash
+            - name: PAPERLESS_MEDIA_ROOT
+              value: /data/media
+            {{- if .Values.paperless.admin.create }}
+            - name: PAPERLESS_ADMIN_USER
+              value: {{ .Values.paperless.admin.username }}
+            - name: PAPERLESS_ADMIN_MAIL
+              value: {{ .Values.paperless.admin.email }}
+            - name: PAPERLESS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "paperless-ngx.fullname" . }}
+                  key: PAPERLESS_ADMIN_PASSWORD
+            {{- end }}
+            {{- if .Values.paperless.enableXForwardedFor }}
+            - name: PAPERLESS_USE_X_FORWARD_HOST
+              value: {{ .Values.paperless.enableXForwardedFor | toString }}
+            - name: PAPERLESS_USE_X_FORWARD_PORT
+              value: {{ .Values.paperless.enableXForwardedFor | toString }}
+            - name: PAPERLESS_PROXY_SSL_HEADER
+              value: {{ .Values.paperless.enableXForwardedFor | toString }}
+            {{- end }}
+            - name: PAPERLESS_TIME_ZONE
+              value: {{ .Values.paperless.timezone }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data-dir
+              mountPath: /data
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: data-dir
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
